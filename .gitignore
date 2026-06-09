@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local database & user data (작품/설정이 들어있음 — 공개 X)
+worldbuilder.db
+worldbuilder.db.bak
+*.db
+*.bak
+
+# Logs / temp
+server.log
+test_out.json

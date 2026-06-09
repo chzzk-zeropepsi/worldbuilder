@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Worldbuilder — 소설 기획 + 세계관</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🌐 Worldbuilder</h1>
+    <nav class="tabs">
+      <button class="tab active" data-view="studio">🎬 기획 스튜디오</button>
+      <button class="tab" data-view="bible">🌐 세계관 바이블</button>
+      <button class="tab" data-view="timeline">📅 연표</button>
+      <button class="tab" data-view="relations">🕸️ 관계도</button>
+    </nav>
+    <div class="header-actions">
+      <div class="project-switch">
+        <select id="project-select" title="작품 선택"></select>
+        <button id="btn-proj-new" title="새 작품">＋</button>
+        <button id="btn-proj-rename" title="이름 변경">✎</button>
+        <button id="btn-proj-del" title="작품 삭제" class="danger">🗑</button>
+      </div>
+      <span id="health" class="health">●</span>
+    </div>
+  </header>
+
+  <!-- ================= 기획 스튜디오 ================= -->
+  <main id="view-studio" class="view">
+    <aside id="stage-rail"></aside>
+
+    <section id="studio-main">
+      <div id="stage-panel"></div>
+    </section>
+
+    <aside id="story-summary">
+      <h2>📋 기획 요약</h2>
+      <div id="summary-body" class="empty">단계를 진행하면 여기에 쌓입니다.</div>
+    </aside>
+  </main>
+
+  <!-- ================= 세계관 바이블 ================= -->
+  <main id="view-bible" class="view hidden">
+    <aside id="sidebar">
+      <button id="btn-new" class="primary">+ 새 항목</button>
+      <button id="btn-check-all">전체 모순 검사</button>
+      <div id="entry-list"></div>
+    </aside>
+
+    <section id="editor">
+      <div id="editor-empty" class="empty">왼쪽에서 항목을 고르거나 새로 만드세요.</div>
+      <form id="editor-form" class="hidden">
+        <div class="row">
+          <select id="f-type"></select>
+          <input id="f-name" placeholder="이름" />
+        </div>
+        <input id="f-aliases" placeholder="별칭 (쉼표로 구분)" />
+        <div id="f-fields"></div>
+        <textarea id="f-body" rows="10" placeholder="자유 서술…"></textarea>
+        <label class="links-label">연결 항목</label>
+        <div id="f-links" class="links"></div>
+        <div class="row">
+          <button type="submit" class="primary">저장 + 검사</button>
+          <button type="button" id="btn-delete" class="danger">삭제</button>
+        </div>
+        <div id="save-status" class="save-status"></div>
+      </form>
+    </section>
+
+    <aside id="panel">
+      <h2>⚠️ 모순 <span id="contra-count" class="badge">0</span></h2>
+      <div id="contra-list"></div>
+      <h2>💡 브레인스토밍</h2>
+      <div id="op-bar" class="op-bar"></div>
+      <div id="suggest-list" class="empty">노드를 고르고 위 기능을 눌러보세요.</div>
+    </aside>
+  </main>
+
+  <!-- ================= 연표 ================= -->
+  <main id="view-timeline" class="view hidden">
+    <section id="timeline-main">
+      <div class="stage-head">
+        <h2>📅 연표</h2>
+        <p>세계의 역사 사건을 시간 순으로. ‘사건’ 타입 바이블 항목이 여기에 시기순으로 모입니다.</p>
+      </div>
+      <div class="tl-actions">
+        <button id="btn-tl-suggest" class="primary">💡 주요 사건 제안받기</button>
+        <button id="btn-tl-add">＋ 사건 직접 추가</button>
+      </div>
+      <div id="tl-options"></div>
+      <div id="timeline-list"></div>
+    </section>
+  </main>
+
+  <!-- ================= 관계도 ================= -->
+  <main id="view-relations" class="view hidden">
+    <aside id="rel-side">
+      <h2>🕸️ 관계도</h2>
+      <div class="rel-mode">
+        <button class="rmode active" data-kind="character">인물</button>
+        <button class="rmode" data-kind="faction">세력</button>
+      </div>
+      <button id="btn-rel-analyze" class="primary">🤖 AI 관계 자동 분석</button>
+      <div id="rel-proposals"></div>
+      <div class="rel-add">
+        <div class="sq-title">관계 직접 추가</div>
+        <select id="rel-from"></select>
+        <select id="rel-type"></select>
+        <select id="rel-to"></select>
+        <input id="rel-note" placeholder="메모(선택)" />
+        <button id="btn-rel-add">＋ 관계 추가</button>
+      </div>
+      <div class="sq-title" style="margin-top:14px">관계 목록</div>
+      <div id="rel-list"></div>
+    </aside>
+    <section id="rel-canvas-wrap">
+      <svg id="rel-svg"></svg>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
