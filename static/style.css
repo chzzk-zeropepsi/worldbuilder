@@ -113,7 +113,21 @@ textarea { resize: vertical; line-height: 1.5; }
 .stage-head h2 { margin: 0 0 4px; font-size: 17px; }
 .stage-head p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
 #studio-main textarea, #studio-main input { width: 100%; margin-bottom: 10px; }
-#btn-suggest { margin-bottom: 14px; }
+
+/* 직접 입력 = 주요(파랑), AI 제안 = 보조 */
+.stage-btns { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.manual-add { display: flex; gap: 8px; margin-bottom: 8px; }
+.manual-add input { flex: 1; margin-bottom: 0; }
+.manual-add button { flex: none; }
+.ai-btn { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+.ai-btn:hover { border-color: var(--accent); color: var(--fg); }
+
+/* 플롯 직접 편집 */
+.plot-act { border: 1px solid var(--border); border-radius: 9px; padding: 10px; margin-bottom: 10px; background: var(--card); }
+.plot-act .pa-title { font-weight: 600; margin-bottom: 0; }
+.plot-act .pa-del { flex: none; width: 38px; padding: 6px; }
+.plot-act .pa-beats { width: 100%; margin: 8px 0 0; resize: vertical; line-height: 1.5; }
+.we-type { flex: none; width: 110px; padding: 4px 8px; }
 
 .chips, .chip { display: inline-flex; }
 .chips { flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

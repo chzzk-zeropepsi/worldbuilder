@@ -81,13 +81,44 @@ async def extract_facts(entry):
 # ---------------------------------------------------------------------------
 CHECK_SYS = (
     "너는 소설 세계관의 일관성 검사기다. '대상 항목'의 사실들과 '기존 설정' 사실들을 "
-    "비교해 서로 모순되거나 충돌하는 쌍만 찾아낸다. 단순히 관련 없는 것은 무시한다. "
-    "진짜 논리적·설정적 충돌만 보고한다. 각 모순에 대해 충돌하는 두 사실 문장, "
-    "심각도(high/medium/low), 한국어 한 문장 설명을 제시한다. "
+    "비교해 서로 직접 충돌하는 쌍만 찾아낸다. 매우 보수적으로 판단하라 — 확실한 모순만 보고하고, "
+    "조금이라도 애매하면 보고하지 마라.\n"
+    "특히 주의(흔한 오탐):\n"
+    "- 수명/나이: 종족의 '수명'은 최대 한계값이다. 그 한계 안의 어떤 나이도 모순이 아니다. "
+    "출생·나이가 수명보다 '작거나 같으면' 정상이다. 나이가 수명을 '명백히 초과'할 때만 모순이다. 직접 계산해 확인하라.\n"
+    "- 숫자/날짜/거리: 반드시 실제로 계산해 한쪽이 다른 쪽을 물리적으로 불가능하게 만들 때만 모순이다.\n"
+    "- 서로 다른 주제이거나 단지 관련 없는 두 사실은 모순이 아니다. 보완·무관 관계를 모순으로 착각하지 마라.\n"
+    "각 모순에 충돌하는 두 사실, 심각도(high/medium/low), 한국어 한 문장 설명을 제시한다. "
     '반드시 {"contradictions": [{"fact_a": "...", "fact_b": "...", '
     '"severity": "high|medium|low", "explanation": "..."}]} JSON만 출력한다. '
     "모순이 없으면 빈 배열을 반환한다."
 )
+
+# Adversarial verification — a skeptic re-checks each candidate and defaults to
+# "not a contradiction" unless it can prove one. Kills small-model false positives
+# (esp. lifespan/age/number reasoning). Runs only on found candidates (few).
+VERIFY_SYS = (
+    "너는 엄격한 회의주의 검증가다. '알려진 사실들' 전체를 근거로, 사실 A와 사실 B가 "
+    "(다른 사실들과 결합한 경우 포함) 동시에 참일 수 없는 진짜 모순인지 판단한다. "
+    "기본 입장은 '모순 아님'이다. 명백히 증명될 때만 모순으로 인정하라.\n"
+    "규칙:\n"
+    "- 수명은 최대값이다. 나이가 수명 이하이면 모순이 아니다. 숫자가 있으면 직접 계산하라(예: 수명 80, 나이 25 → 정상, 나이 200 → 모순).\n"
+    "- 연결 고리를 활용하라. 예: 'X는 인간이다' + '인간은 마법 불가' + 'X는 마법을 쓴다' → 모순.\n"
+    "- 단지 관련 있거나 서로 보완하는 사실, 또는 연결 고리가 없어 결론을 못 내리는 경우는 모순이 아니다.\n"
+    "먼저 reason에 추론/계산을 한국어로 적고, is_contradiction을 정한다. "
+    '반드시 {"reason":"...","is_contradiction":true|false} JSON만 출력한다.'
+)
+
+
+async def _verify_contradiction(fact_a, fact_b, context):
+    ctx = "\n".join(f"- {c}" for c in context)
+    user = (
+        f"알려진 사실들:\n{ctx}\n\n"
+        f"판정 대상:\n사실 A: {fact_a}\n사실 B: {fact_b}\n\n"
+        "위 알려진 사실들을 모두 고려할 때, A와 B는 동시에 참일 수 없는 모순인가? 숫자는 계산하라."
+    )
+    out = _loads(await _chat(VERIFY_SYS, user), {"is_contradiction": False})
+    return bool(out.get("is_contradiction")) if isinstance(out, dict) else False
 
 
 async def check_contradictions(target_facts, related):
@@ -129,7 +160,17 @@ async def check_contradictions(target_facts, related):
                 "src_entry": src,
             }
         )
-    return results
+
+    # Adversarial verification pass — a skeptic re-checks each candidate using the
+    # FULL fact context (so it can use linking facts), and drops what it can't confirm.
+    context = target_facts + [fact for _rid, _n, fact in related]
+    verified = []
+    for r in results:
+        if not r["fact_a"] or not r["fact_b"]:
+            continue
+        if await _verify_contradiction(r["fact_a"], r["fact_b"], context):
+            verified.append(r)
+    return verified
 
 
 # ---------------------------------------------------------------------------

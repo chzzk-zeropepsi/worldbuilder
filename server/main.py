@@ -20,6 +20,17 @@ app = FastAPI(title="Worldbuilder")
 
 db.init_db()
 
+
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """Always serve fresh HTML/CSS/JS so edits never get stuck behind a stale
+    browser cache (which can break the page if index.html and app.js mismatch)."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
 # Cap how many related facts we hand the model per check — keeps the 7B context
 # small enough to reason reliably.
 MAX_RELATED_FACTS = 40
@@ -251,25 +262,35 @@ def get_entry(entry_id: int):
 
 
 @app.post("/api/entries")
-async def create_entry(entry: EntryIn):
+def create_entry(entry: EntryIn):
+    # Fast: just persist. Fact extraction + contradiction check run on demand
+    # (per-entry /check or the batch /check-all) so saving never blocks on the LLM.
     eid = db.create_entry(entry.model_dump())
-    result = await _reextract_and_check(eid)
-    return {"id": eid, **result}
+    return {"id": eid}
 
 
 @app.put("/api/entries/{entry_id}")
-async def put_entry(entry_id: int, entry: EntryIn):
+def put_entry(entry_id: int, entry: EntryIn):
     if not db.get_entry(entry_id):
         raise HTTPException(404)
     db.update_entry(entry_id, entry.model_dump())
-    result = await _reextract_and_check(entry_id)
-    return {"id": entry_id, **result}
+    # Edited facts may make old contradictions stale — clear them; re-check on demand.
+    db.clear_contradictions_for(entry_id)
+    return {"id": entry_id}
 
 
 @app.delete("/api/entries/{entry_id}")
 def del_entry(entry_id: int):
     db.delete_entry(entry_id)
     return {"ok": True}
+
+
+@app.post("/api/entries/{entry_id}/check")
+async def check_entry(entry_id: int):
+    """On-demand: extract facts + run the contradiction check for one entry."""
+    if not db.get_entry(entry_id):
+        raise HTTPException(404)
+    return await _reextract_and_check(entry_id)
 
 
 @app.post("/api/entries/{entry_id}/expand")

@@ -53,6 +53,7 @@ async function boot() {
   $("btn-new").onclick = newEntry;
   $("btn-check-all").onclick = checkAll;
   $("btn-delete").onclick = deleteCurrent;
+  $("btn-check").onclick = checkCurrent;
   $("editor-form").addEventListener("submit", save);
 
   // timeline wiring
@@ -131,9 +132,21 @@ function stageHeader(title, desc) {
   return `<div class="stage-head"><h2>${title}</h2><p>${desc}</p></div>`;
 }
 function suggestBtn(label) {
-  return `<button id="btn-suggest" class="primary">💡 ${label}</button>`;
+  // AI 제안은 보조 동작(느릴 수 있음) — 직접 입력 버튼과 구분되게 비강조 스타일.
+  return `<button id="btn-suggest" class="ai-btn">${label}</button>`;
 }
-function spin() { $("stage-options").innerHTML = '<div class="spinner">생성 중… (로컬 모델, 수 초~수십 초)</div>'; }
+function spin(el) { $(el || "stage-options").innerHTML = '<div class="spinner">생성 중… (로컬 모델, 수 초~수십 초)</div>'; }
+
+// 스튜디오 제안 호출 + 에러 표시. 실패 시 null 반환(스피너 멈춤 방지).
+async function suggestCall(stage, extra = "", targetEl = "stage-options") {
+  spin(targetEl);
+  try {
+    return await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage, extra }) });
+  } catch (e) {
+    $(targetEl).innerHTML = `<div class="empty">⚠️ 제안 실패: ${esc(e.message)}<br>Ollama가 켜져 있는지, 모델(exaone3.5:7.8b)이 있는지 확인 후 다시 시도하세요.</div>`;
+    return null;
+  }
+}
 
 function renderStage() {
   const p = $("stage-panel");
@@ -171,9 +184,8 @@ function stageGenre(p) {
   loadGenreKb();
   $("btn-suggest").onclick = async () => {
     if (!(story.genres || []).length) return alert("장르를 하나 이상 고르세요.");
-    spin();
-    const { options = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "genre" }) });
-    renderOptionCards(options, (o) => { story.tone = o.title; $("tone-input").value = o.title; saveStory(); }, "이 방향 채택");
+    const res = await suggestCall("genre"); if (!res) return;
+    renderOptionCards(res.options || [], (o) => { story.tone = o.title; $("tone-input").value = o.title; saveStory(); }, "이 방향 채택");
   };
 }
 
@@ -242,9 +254,8 @@ function stageLogline(p) {
     ${suggestBtn("로그라인 4개 제안받기")}<div id="stage-options"></div>`;
   $("logline-text").onchange = (e) => { story.logline = e.target.value.trim(); saveStory(); };
   $("btn-suggest").onclick = async () => {
-    spin();
-    const { options = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "logline" }) });
-    renderOptionCards(options, (o) => { story.logline = o.title; $("logline-text").value = o.title; saveStory(); }, "이 로그라인 채택");
+    const res = await suggestCall("logline"); if (!res) return;
+    renderOptionCards(res.options || [], (o) => { story.logline = o.title; $("logline-text").value = o.title; saveStory(); }, "이 로그라인 채택");
   };
 }
 
@@ -256,9 +267,8 @@ function stageTheme(p) {
     ${suggestBtn("테마 제안받기")}<div id="stage-options"></div>`;
   $("theme-text").onchange = (e) => { story.theme = e.target.value.trim(); saveStory(); };
   $("btn-suggest").onclick = async () => {
-    spin();
-    const { options = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "theme" }) });
-    renderOptionCards(options, (o) => { story.theme = o.title; $("theme-text").value = o.title; saveStory(); }, "이 테마 채택");
+    const res = await suggestCall("theme"); if (!res) return;
+    renderOptionCards(res.options || [], (o) => { story.theme = o.title; $("theme-text").value = o.title; saveStory(); }, "이 테마 채택");
   };
 }
 
@@ -266,11 +276,24 @@ function stageTheme(p) {
 function stageCliche(p) {
   story.cliches = story.cliches || [];
   p.innerHTML =
-    stageHeader("클리셰 점검", "장르 클리셰를 가져와 각각 [따름 / 비틂 / 버림]을 정하세요. ‘비틂’은 비트는 방법까지 제안받습니다.") +
-    suggestBtn("장르 클리셰 가져오기") + `<div id="cliche-list"></div><div id="stage-options"></div>`;
+    stageHeader("클리셰 점검", "클리셰를 직접 적거나 AI/장르KB로 가져와, 각각 [따름 / 비틂 / 버림]을 정하세요.") +
+    `<div class="manual-add"><input id="cliche-input" placeholder="클리셰 직접 입력 후 Enter 또는 추가" />
+       <button id="cliche-add" class="primary">추가</button></div>
+     <div class="stage-btns">${suggestBtn("💡 AI/장르 클리셰 가져오기")}</div>
+     <div id="cliche-list"></div><div id="stage-options"></div>`;
+  const addCliche = () => {
+    const v = $("cliche-input").value.trim();
+    if (!v) return;
+    if (!story.cliches.find((c) => c.cliche === v))
+      story.cliches.push({ cliche: v, why_common: "직접 입력", decision: "", twist: "" });
+    $("cliche-input").value = "";
+    saveStory(); renderClicheList(); renderRail();
+  };
+  $("cliche-add").onclick = addCliche;
+  $("cliche-input").onkeydown = (e) => { if (e.key === "Enter") addCliche(); };
   $("btn-suggest").onclick = async () => {
-    $("cliche-list").innerHTML = '<div class="spinner">클리셰 분석 중…</div>';
-    const { items = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "cliche" }) });
+    const res = await suggestCall("cliche", "", "cliche-list"); if (!res) return;
+    const items = res.items || [];
     // merge with any existing decisions
     items.forEach((it) => {
       if (!story.cliches.find((c) => c.cliche === it.cliche))
@@ -305,101 +328,148 @@ function renderClicheList() {
     b.onclick = async () => {
       const i = +b.dataset.i;
       b.textContent = "생성 중…";
-      const { options = [] } = await api("/studio/suggest", {
-        method: "POST", body: JSON.stringify({ stage: "twist", extra: "비틀 클리셰: " + story.cliches[i].cliche }) });
+      let options = [];
+      try {
+        const r = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "twist", extra: "비틀 클리셰: " + story.cliches[i].cliche }) });
+        options = r.options || [];
+      } catch (e) { b.textContent = "오류 — 다시 시도"; return; }
       renderOptionCards(options, (o) => { story.cliches[i].twist = o.title; saveStory(); renderClicheList(); }, "이 비틀기 채택");
     };
   });
 }
 
 // --- character ---
+function charCardHTML(c = {}) {
+  return `<div class="opt-card">
+    <div class="ch-row"><input class="ce-name" value="${esc(c.name)}" placeholder="이름" /><input class="ce-role" value="${esc(c.role)}" placeholder="역할" /></div>
+    <label class="ce-l">욕망</label><input class="ce-desire" value="${esc(c.desire)}" />
+    <label class="ce-l">결함</label><input class="ce-flaw" value="${esc(c.flaw)}" />
+    <label class="ce-l">비밀</label><input class="ce-secret" value="${esc(c.secret)}" />
+    <label class="ce-l">기능/설명</label><textarea class="ce-note" rows="2">${esc(c.note)}</textarea>
+    <div class="card-acts"><button class="add">＋ 바이블에 추가</button><button class="reject">${c.name === undefined ? "취소" : "거절"}</button></div>
+  </div>`;
+}
+function wireCharCard(card) {
+  const g = (cls) => card.querySelector(cls).value.trim();
+  card.querySelector(".add").onclick = async (e) => {
+    if (!g(".ce-name")) return alert("이름을 입력하세요.");
+    await api("/entries", { method: "POST", body: JSON.stringify({
+      type: "character", name: g(".ce-name"), aliases: [],
+      fields: { 역할: g(".ce-role"), 목적: g(".ce-desire"), 비밀: g(".ce-secret") },
+      body: `${g(".ce-note")}\n결함: ${g(".ce-flaw")}`, links: [],
+    }) });
+    story.committed_characters = (story.committed_characters || 0) + 1;
+    saveStory(); renderRail();
+    e.target.textContent = "✓ 추가됨"; e.target.disabled = true;
+  };
+  card.querySelector(".reject").onclick = () => card.remove();
+}
 function stageCharacter(p) {
   p.innerHTML =
-    stageHeader("주요 인물", "지금까지 설정에 맞는 인물을 제안받아 ‘바이블에 추가’하면 인물 카드로 저장됩니다.") +
-    suggestBtn("인물 4~5명 제안받기") + `<div id="stage-options"></div>`;
+    stageHeader("주요 인물", "직접 입력해 바로 만들거나, 막히면 AI 제안을 받으세요. 추가하면 인물 카드로 저장됩니다.") +
+    `<div class="stage-btns"><button id="btn-manual" class="primary">＋ 직접 인물 추가</button>${suggestBtn("💡 AI 인물 제안")}</div>
+     <div id="stage-options"></div>`;
+  $("btn-manual").onclick = () => {
+    $("stage-options").insertAdjacentHTML("afterbegin", charCardHTML());
+    wireCharCard($("stage-options").firstElementChild);
+  };
   $("btn-suggest").onclick = async () => {
-    spin();
-    const { characters = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "character" }) });
-    $("stage-options").innerHTML = characters.map((c, i) => `
-      <div class="opt-card" data-i="${i}">
-        <div class="ch-row"><input class="ce-name" value="${esc(c.name)}" placeholder="이름" /><input class="ce-role" value="${esc(c.role)}" placeholder="역할" /></div>
-        <label class="ce-l">욕망</label><input class="ce-desire" value="${esc(c.desire)}" />
-        <label class="ce-l">결함</label><input class="ce-flaw" value="${esc(c.flaw)}" />
-        <label class="ce-l">비밀</label><input class="ce-secret" value="${esc(c.secret)}" />
-        <label class="ce-l">기능/설명</label><textarea class="ce-note" rows="2">${esc(c.note)}</textarea>
-        <div class="card-acts"><button class="add">＋ 바이블에 추가</button><button class="reject">거절</button></div>
-      </div>`).join("") || '<div class="empty">제안이 없습니다.</div>';
-    $("stage-options").querySelectorAll(".opt-card").forEach((card) => {
-      const g = (cls) => card.querySelector(cls).value.trim();
-      card.querySelector(".add").onclick = async (e) => {
-        await api("/entries", { method: "POST", body: JSON.stringify({
-          type: "character", name: g(".ce-name") || "이름 없음", aliases: [],
-          fields: { 역할: g(".ce-role"), 목적: g(".ce-desire"), 비밀: g(".ce-secret") },
-          body: `${g(".ce-note")}\n결함: ${g(".ce-flaw")}`, links: [],
-        }) });
-        story.committed_characters = (story.committed_characters || 0) + 1;
-        saveStory(); renderRail();
-        e.target.textContent = "✓ 추가됨"; e.target.disabled = true;
-      };
-      card.querySelector(".reject").onclick = () => card.remove();
-    });
+    const res = await suggestCall("character"); if (!res) return;
+    const characters = res.characters || [];
+    $("stage-options").innerHTML = characters.map((c) => charCardHTML(c)).join("") || '<div class="empty">제안이 없습니다.</div>';
+    $("stage-options").querySelectorAll(".opt-card").forEach(wireCharCard);
   };
 }
 
 // --- world ---
+function worldCardHTML(o = {}, isManual) {
+  const type = TYPES[o.type] ? o.type : "concept";
+  const typeSel = `<select class="we-type">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${k === type ? "selected" : ""}>${v.label}</option>`).join("")}</select>`;
+  return `<div class="opt-card">
+    <input class="we-title" value="${esc(o.title)}" placeholder="이름" />
+    <textarea class="we-detail" rows="3" placeholder="설정 내용 (규칙·대가·한계)">${esc(o.detail)}</textarea>
+    <div class="card-acts">${typeSel}
+      <button class="add">＋ 바이블에 추가</button><button class="reject">${isManual ? "취소" : "거절"}</button></div>
+  </div>`;
+}
+function wireWorldCard(card) {
+  card.querySelector(".add").onclick = async (e) => {
+    const name = card.querySelector(".we-title").value.trim();
+    if (!name) return alert("이름을 입력하세요.");
+    await api("/entries", { method: "POST", body: JSON.stringify({
+      type: card.querySelector(".we-type").value, name, aliases: [], fields: {},
+      body: card.querySelector(".we-detail").value, links: [] }) });
+    story.committed_world = (story.committed_world || 0) + 1;
+    saveStory(); renderRail();
+    e.target.textContent = "✓ 추가됨"; e.target.disabled = true;
+  };
+  card.querySelector(".reject").onclick = () => card.remove();
+}
 function stageWorld(p) {
   p.innerHTML =
-    stageHeader("세계 핵심 설정", "이야기를 떠받칠 규칙들을 제안받아 바이블에 추가하세요. 각 규칙엔 대가/한계가 붙습니다.") +
-    suggestBtn("핵심 설정 제안받기") + `<div id="stage-options"></div>`;
+    stageHeader("세계 핵심 설정", "직접 입력해 바로 만들거나, 막히면 AI 제안을 받으세요. 각 규칙엔 대가/한계를 넣으면 좋습니다.") +
+    `<div class="stage-btns"><button id="btn-manual" class="primary">＋ 직접 설정 추가</button>${suggestBtn("💡 AI 설정 제안")}</div>
+     <div id="stage-options"></div>`;
+  $("btn-manual").onclick = () => {
+    $("stage-options").insertAdjacentHTML("afterbegin", worldCardHTML({}, true));
+    wireWorldCard($("stage-options").firstElementChild);
+  };
   $("btn-suggest").onclick = async () => {
-    spin();
-    const { options = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "world" }) });
-    $("stage-options").innerHTML = options.map((o, i) => `
-      <div class="opt-card" data-i="${i}">
-        <input class="we-title" value="${esc(o.title)}" placeholder="이름" />
-        <textarea class="we-detail" rows="3">${esc(o.detail)}</textarea>
-        <div class="card-acts"><span class="role">${esc(TYPES[o.type]?.label || o.type)}</span>
-          <button class="add">＋ 바이블에 추가</button><button class="reject">거절</button></div>
-      </div>`).join("") || '<div class="empty">제안이 없습니다.</div>';
-    $("stage-options").querySelectorAll(".opt-card").forEach((card) => {
-      const o = options[+card.dataset.i];
-      card.querySelector(".add").onclick = async (e) => {
-        await api("/entries", { method: "POST", body: JSON.stringify({
-          type: TYPES[o.type] ? o.type : "concept", name: card.querySelector(".we-title").value.trim() || "이름 없음",
-          aliases: [], fields: {}, body: card.querySelector(".we-detail").value, links: [] }) });
-        story.committed_world = (story.committed_world || 0) + 1;
-        saveStory(); renderRail();
-        e.target.textContent = "✓ 추가됨"; e.target.disabled = true;
-      };
-      card.querySelector(".reject").onclick = () => card.remove();
-    });
+    const res = await suggestCall("world"); if (!res) return;
+    const options = res.options || [];
+    $("stage-options").innerHTML = options.map((o) => worldCardHTML(o)).join("") || '<div class="empty">제안이 없습니다.</div>';
+    $("stage-options").querySelectorAll(".opt-card").forEach(wireWorldCard);
   };
 }
 
-// --- plot ---
+// --- plot ---  (직접 편집 가능. story.plot = [{act, beats:[문자열]}])
+function beatToText(b) {
+  if (b && typeof b === "object") return (b.beat || b.title || "") + (b.description ? " — " + b.description : "");
+  return String(b ?? "");
+}
+function normalizePlot(acts) {
+  return (acts || []).map((a) => ({ act: a.act || "", beats: (a.beats || []).map(beatToText) }));
+}
 function stagePlot(p) {
   p.innerHTML =
-    stageHeader("플롯 골격", "지금까지의 모든 설정을 종합해 3막 골격을 짭니다.") +
-    suggestBtn("플롯 골격 제안받기") + `<div id="stage-options"></div>`;
-  if (story.plot) renderPlot(story.plot);
+    stageHeader("플롯 골격", "막과 비트를 직접 적거나 수정하세요. 막히면 AI에게 초안을 받아 고쳐도 됩니다. (비트는 한 줄에 하나)") +
+    `<div class="stage-btns"><button id="btn-manual" class="primary">＋ 막 추가</button>${suggestBtn("💡 AI 플롯 초안")}</div>
+     <div id="plot-editor"></div>`;
+  renderPlotEditor();
+  $("btn-manual").onclick = () => {
+    story.plot = story.plot || [];
+    story.plot.push({ act: `${story.plot.length + 1}막`, beats: [] });
+    saveStory(); renderPlotEditor();
+  };
   $("btn-suggest").onclick = async () => {
-    spin();
-    const res = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "plot" }) });
-    story.plot = res.acts || []; saveStory(); renderRail(); renderPlot(story.plot);
+    const res = await suggestCall("plot", "", "plot-editor"); if (!res) return;
+    story.plot = normalizePlot(res.acts || []); saveStory(); renderRail(); renderPlotEditor();
   };
 }
-function beatHtml(b) {
-  // The model returns beats as either plain strings or {beat, description} objects.
-  if (b && typeof b === "object")
-    return `<li><b>${esc(b.beat || b.title || "")}</b>${b.description ? " — " + esc(b.description) : ""}</li>`;
-  return `<li>${esc(b)}</li>`;
-}
-function renderPlot(acts) {
-  $("stage-options").innerHTML = (acts || []).map((a) => `
-    <div class="opt-card">
-      <div class="opt-title">${esc(a.act)}</div>
-      <ul class="beats">${(a.beats || []).map(beatHtml).join("")}</ul>
-    </div>`).join("") || '<div class="empty">아직 없습니다.</div>';
+function renderPlotEditor() {
+  const acts = story.plot || [];
+  const box = $("plot-editor");
+  if (!box) return;
+  if (!acts.length) { box.innerHTML = '<div class="empty">아직 없습니다. ‘＋ 막 추가’로 직접 짜거나 AI 초안을 받으세요.</div>'; return; }
+  box.innerHTML = acts.map((a, i) => `
+    <div class="plot-act" data-i="${i}">
+      <div class="ch-row"><input class="pa-title" value="${esc(a.act)}" placeholder="막 제목" />
+        <button class="pa-del danger" title="막 삭제">🗑</button></div>
+      <textarea class="pa-beats" rows="${Math.max(2, (a.beats || []).length + 1)}" placeholder="비트 (한 줄에 하나)">${esc((a.beats || []).join("\n"))}</textarea>
+    </div>`).join("");
+  box.querySelectorAll(".plot-act").forEach((el) => {
+    const i = +el.dataset.i;
+    const save = () => {
+      story.plot[i] = {
+        act: el.querySelector(".pa-title").value,
+        beats: el.querySelector(".pa-beats").value.split("\n").map((s) => s.trim()).filter(Boolean),
+      };
+      saveStory(); renderRail();
+    };
+    el.querySelector(".pa-title").onchange = save;
+    el.querySelector(".pa-beats").onchange = save;
+    el.querySelector(".pa-del").onclick = () => { story.plot.splice(i, 1); saveStory(); renderPlotEditor(); renderRail(); };
+  });
 }
 
 // --- generic option cards (title + detail, pick action) ---
@@ -486,6 +556,7 @@ function showForm() {
   renderLinks();
   $("save-status").textContent = "";
   $("btn-delete").style.display = current.id ? "" : "none";
+  $("btn-check").disabled = !current.id;
   renderOpBar();
   $("suggest-list").innerHTML = current.id
     ? '<div class="empty">위 기능을 눌러 아이디어를 받아보세요.</div>'
@@ -531,15 +602,26 @@ async function save(e) {
   e.preventDefault();
   const data = collectForm();
   if (!data.name) return ($("save-status").textContent = "이름을 입력하세요.");
-  $("save-status").innerHTML = '<span class="spinner">저장 + 사실 추출 + 모순 검사 중…</span>';
   try {
     const res = current.id
       ? await api("/entries/" + current.id, { method: "PUT", body: JSON.stringify(data) })
       : await api("/entries", { method: "POST", body: JSON.stringify(data) });
     current = await api("/entries/" + res.id);
     await refresh(); await loadContradictions(); renderList();
-    $("save-status").textContent = `저장됨 · 사실 ${res.facts.length}개 · 새 모순 ${res.findings.length}개`;
+    $("btn-check").disabled = false;
+    renderOpBar(); // enable brainstorm/check now that it has an id
+    $("save-status").textContent = "저장됨 ✓  (모순을 확인하려면 ‘🔍 모순 검사’)";
   } catch (err) { $("save-status").textContent = "오류: " + err.message; }
+}
+
+async function checkCurrent() {
+  if (!current.id) return ($("save-status").textContent = "먼저 저장하세요.");
+  $("save-status").innerHTML = '<span class="spinner">사실 추출 + 모순 검사 중… (수 초~수십 초)</span>';
+  try {
+    const res = await api("/entries/" + current.id + "/check", { method: "POST" });
+    await loadContradictions(); renderList();
+    $("save-status").textContent = `검사 완료 · 사실 ${res.facts.length}개 · 모순 ${res.findings.length}건`;
+  } catch (err) { $("save-status").textContent = "검사 오류: " + err.message + " (Ollama 확인)"; }
 }
 async function deleteCurrent() {
   if (!current.id || !confirm("이 항목을 삭제할까요?")) return;
@@ -625,8 +707,8 @@ async function renderTimeline() {
 }
 
 async function suggestTimeline() {
-  $("tl-options").innerHTML = '<div class="spinner">사건 생성 중…</div>';
-  const { events = [] } = await api("/studio/suggest", { method: "POST", body: JSON.stringify({ stage: "timeline" }) });
+  const res = await suggestCall("timeline", "", "tl-options"); if (!res) return;
+  const events = res.events || [];
   $("tl-options").innerHTML = events.map((ev, i) => `
     <div class="opt-card" data-i="${i}">
       <div class="ch-row"><input class="ee-name" value="${esc(ev.name)}" placeholder="사건명" /><input class="ee-when" value="${esc(ev.when)}" placeholder="시기" /></div>

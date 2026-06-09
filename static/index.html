@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Worldbuilder — 소설 기획 + 세계관</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=2" />
 </head>
 <body>
   <header>
@@ -61,7 +61,8 @@
         <label class="links-label">연결 항목</label>
         <div id="f-links" class="links"></div>
         <div class="row">
-          <button type="submit" class="primary">저장 + 검사</button>
+          <button type="submit" class="primary">저장</button>
+          <button type="button" id="btn-check">🔍 모순 검사</button>
           <button type="button" id="btn-delete" class="danger">삭제</button>
         </div>
         <div id="save-status" class="save-status"></div>
@@ -119,6 +120,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
